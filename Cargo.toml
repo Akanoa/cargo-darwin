@@ -20,3 +20,4 @@ tree-sitter-rust = "0.20.4"
 proc-macro2 = { version = "1.0.79", features = ["span-locations"] }
 normpath = "1.2.0"
 imara-diff = "0.1.5"
+wait-timeout = "0.2.0"

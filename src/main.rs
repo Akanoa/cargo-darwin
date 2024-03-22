@@ -2,5 +2,7 @@ use cargo_darwin::run;
 
 fn main() {
     env_logger::init();
-    dbg!(run());
+    if let Err(report) = run() {
+        let _ = dbg!(report);
+    }
 }

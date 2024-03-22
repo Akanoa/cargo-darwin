@@ -1,18 +1,21 @@
+use crate::report::{MutationReport, MutationStatus};
 use clap::Parser;
 use cli::{Cli, Darwin};
 use eyre::{eyre, Context};
 use mutation::Mutation;
 use normpath::PathExt;
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read, Stdout, Write};
 use std::path::{Path, PathBuf};
-use syn::spanned::Spanned;
-use syn::{Attribute, ItemFn, Token};
+use std::process::Stdio;
+use std::time::Duration;
+use syn::{Attribute, ItemFn};
+use wait_timeout::ChildExt;
 use walkdir::WalkDir;
 
 mod cli;
 mod mutation;
+mod report;
 
 static FUNCTION_ITEM: &'static str = "function_item";
 static ATTRIBUTE_ITEM: &'static str = "attribute_item";
@@ -45,72 +48,6 @@ fn is_test_function(attrs: &Vec<Attribute>) -> eyre::Result<bool> {
         }
     }
     Ok(false)
-}
-
-fn handle_bin_op(expression: &syn::ExprBinary) -> eyre::Result<Vec<syn::ExprBinary>> {
-    let mut mutated_binary_expressions = vec![];
-    let mut cloned_expr = expression.clone();
-    let span = cloned_expr.span();
-    match expression.op {
-        syn::BinOp::Add(..) => {
-            log::trace!("Binary + operation found");
-            cloned_expr.op = syn::BinOp::Sub(Token![-](span));
-            mutated_binary_expressions.push(cloned_expr.clone());
-            cloned_expr.op = syn::BinOp::Div(Token![/](span));
-            mutated_binary_expressions.push(cloned_expr);
-        }
-        syn::BinOp::Sub(..) => {
-            log::trace!("Binary - operation found");
-            cloned_expr.op = syn::BinOp::Mul(Token![*](span));
-            mutated_binary_expressions.push(cloned_expr.clone());
-            cloned_expr.op = syn::BinOp::And(Token![&&](span));
-            mutated_binary_expressions.push(cloned_expr);
-        }
-        _ => {}
-    }
-
-    Ok(mutated_binary_expressions)
-}
-
-fn handle_mutable_function(function: &syn::ItemFn) -> eyre::Result<Vec<ItemFn>> {
-    let statements = &function.block.stmts;
-    let mut mutated_functions = vec![];
-
-    let mut mutated_statement_by_index: HashMap<usize, Vec<syn::Stmt>> = HashMap::new();
-
-    for (index, statement) in statements.iter().enumerate() {
-        let mut mutated_statements: Vec<syn::Stmt> = vec![];
-        match statement {
-            syn::Stmt::Expr(syn::Expr::Binary(expression), semi) => {
-                for mutated_binary_expr in handle_bin_op(expression)? {
-                    let mutated_statement =
-                        syn::Stmt::Expr(syn::Expr::Binary(mutated_binary_expr), semi.clone());
-                    mutated_statements.push(mutated_statement);
-                }
-            }
-            _ => {}
-        }
-        mutated_statement_by_index.insert(index, mutated_statements);
-    }
-
-    for (index, statements) in mutated_statement_by_index {
-        for statement in statements {
-            let mut function_clone = function.clone();
-            let _ = std::mem::replace(&mut function_clone.block.stmts[index], statement);
-            mutated_functions.push(function_clone);
-        }
-    }
-
-    Ok(mutated_functions)
-}
-
-fn handle_function_item(function: &syn::ItemFn) -> eyre::Result<Vec<ItemFn>> {
-    if !is_test_function(&function.attrs)? {
-        log::debug!("Handle function {}", function.sig.ident);
-        return handle_mutable_function(function);
-    }
-
-    Ok(vec![])
 }
 
 fn check_function_is_test(
@@ -221,46 +158,11 @@ fn tree_sitter_parse(path: &Path, root_path: &PathBuf) -> eyre::Result<Vec<Mutat
     Ok(file_mutants)
 }
 
-fn syn_parse(path: &Path) -> eyre::Result<Vec<syn::File>> {
-    log::info!("Handle file {path:?}");
-    let mut source_file = File::open(path)?;
-    let mut content = String::new();
-    source_file.read_to_string(&mut content)?;
-    let ast = syn::parse_file(&content)?;
-
-    let mut mutants: Vec<syn::File> = vec![];
-    let mut mutated_item_by_index: HashMap<usize, Vec<syn::Item>> = HashMap::new();
-
-    for (index, item) in ast.items.iter().enumerate() {
-        match item {
-            syn::Item::Fn(function_item) => {
-                let mutated_functions: Vec<syn::Item> = handle_function_item(function_item)?
-                    .iter()
-                    .map(|item_fn| syn::Item::Fn(item_fn.clone()))
-                    .collect();
-                mutated_item_by_index.insert(index, mutated_functions);
-            }
-            _ => {}
-        }
-    }
-
-    for (index, mutated_items) in mutated_item_by_index {
-        for mutated_item in mutated_items {
-            let mut ast_clone = ast.clone();
-            let _ = std::mem::replace(&mut ast_clone.items[index], mutated_item);
-            mutants.push(ast_clone);
-        }
-    }
-
-    Ok(mutants)
-}
-
 fn copy_project_with_mutation(
     entries: &Vec<globwalk::DirEntry>,
     project_path: &PathBuf,
     mutation_root: &PathBuf,
-    mutant_file: &syn::File,
-    mutant_file_path: &PathBuf,
+    mutation: &Mutation,
 ) -> eyre::Result<()> {
     std::fs::create_dir_all(mutation_root)?;
 
@@ -276,14 +178,14 @@ fn copy_project_with_mutation(
         }
     }
 
-    let mutant_content = prettyplease::unparse(&mutant_file);
-
+    let relative_path = std::fs::canonicalize(mutation.get_file_path()?)?;
+    let mutant_file_path = relative_path.strip_prefix(project_path.as_path())?;
     let mutant_file_path = std::fs::canonicalize(mutation_root.join(mutant_file_path))
         .wrap_err(eyre!("Unable to canonicalize path {mutant_file_path:?}"))?;
     let mut file_to_mutate = File::create(&mutant_file_path)
         .wrap_err(eyre!("Unable to open file {mutant_file_path:?}"))?;
     file_to_mutate
-        .write_all(mutant_content.as_bytes())
+        .write_all(mutation.get_mutated_file()?.as_bytes())
         .wrap_err(eyre!("Unable to write file {mutant_file_path:?}"))?;
     file_to_mutate.flush()?;
 
@@ -291,7 +193,7 @@ fn copy_project_with_mutation(
 }
 
 fn generate_mutants(
-    mutants: HashMap<PathBuf, Vec<syn::File>>,
+    mutants: &mut Vec<Mutation>,
     project_path: &PathBuf,
     mutation_root: &PathBuf,
 ) -> eyre::Result<()> {
@@ -309,29 +211,23 @@ fn generate_mutants(
         .wrap_err("Unable to get canonical mutation_root")?;
 
     let mut mutation_id = 0;
-    for (mutant_file, mutations) in mutants {
-        let mutant_file_path = PathBuf::from(mutant_file);
-        for mutation in mutations {
-            copy_project_with_mutation(
-                &walker,
-                &project_path,
-                &mutation_root.join(format!("{mutation_id}")),
-                &mutation,
-                &mutant_file_path,
-            )?;
-            mutation_id += 1;
-        }
+
+    for mutation in mutants {
+        let mutation_path = mutation_root.join(format!("{mutation_id}"));
+        mutation.set_mutation_project_path(&mutation_path);
+        copy_project_with_mutation(&walker, &project_path, &mutation_path, mutation)?;
+        mutation_id += 1;
     }
 
     Ok(())
 }
 
-fn list_sources(root_path: &PathBuf) -> eyre::Result<HashMap<PathBuf, Vec<syn::File>>> {
-    dbg!(root_path);
+/// Analyze a path
+/// Detect Rust files
+/// Generate in memory Mutation
+fn analyze(root_path: &PathBuf) -> eyre::Result<Vec<Mutation>> {
     let root_path = root_path.normalize().wrap_err("x")?.as_path().to_path_buf();
     let walker = WalkDir::new(&root_path);
-    // Contient l'ensemble des variants de mutation par fichiers
-    let mut mutated_files_per_project: HashMap<PathBuf, Vec<syn::File>> = HashMap::new();
     let mut mutants = vec![];
 
     for entry in walker {
@@ -340,16 +236,91 @@ fn list_sources(root_path: &PathBuf) -> eyre::Result<HashMap<PathBuf, Vec<syn::F
             let path = entry.path();
             let mutated_files = tree_sitter_parse(path, &root_path)?;
             mutants.extend(mutated_files);
-            // mutated_files_per_project
-            //     .insert(path.strip_prefix(&root_path)?.to_path_buf(), mutated_files);
         }
     }
 
-    for mutant in mutants {
-        println!("{}", mutant.display().unwrap())
-    }
+    Ok(mutants)
+}
 
-    Ok(mutated_files_per_project)
+fn run_test_for_mutation(mutation: &Mutation) -> eyre::Result<MutationReport> {
+    let path = mutation.get_mutation_project_path()?;
+
+    let command = std::process::Command::new("cargo")
+        .arg("build")
+        .current_dir(path)
+        .env("RUSTFLAGS", "-Awarnings")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?
+        .wait_with_output()?;
+
+    return if command.status.code() == Some(101) {
+        let stdout = String::from_utf8_lossy(&command.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&command.stderr).to_string();
+
+        println!("stdout:\n{stderr}\nstdout:\n{stdout}");
+
+        Ok(MutationReport::new(
+            stdout,
+            stderr,
+            MutationStatus::CompilationFailed,
+        ))
+    } else {
+        let mut command = std::process::Command::new("cargo")
+            .arg("test")
+            .current_dir(path)
+            .env("RUSTFLAGS", "-Awarnings")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        let cargo_test_result = command.wait_timeout(Duration::from_secs(60))?;
+        match cargo_test_result {
+            Some(status) => {
+                let mut stdout = String::new();
+                command
+                    .stdout
+                    .ok_or(eyre!("No stdout"))?
+                    .read_to_string(&mut stdout)?;
+                let mut stderr = String::new();
+                command
+                    .stderr
+                    .ok_or(eyre!("No stderr"))?
+                    .read_to_string(&mut stderr)?;
+
+                let status = match status.code() {
+                    Some(101) => MutationStatus::Fail,
+                    Some(0) => MutationStatus::Success,
+                    _ => unreachable!(),
+                };
+                Ok(MutationReport::new(stdout, stderr, status))
+            }
+            None => {
+                command.kill()?;
+                Ok(MutationReport::new(
+                    "".to_string(),
+                    "Timeout!".to_string(),
+                    MutationStatus::Timeout,
+                ))
+            }
+        }
+    };
+}
+
+fn run_tests(mutations: &Vec<Mutation>) -> eyre::Result<()> {
+    for mutation in mutations {
+        let report = run_test_for_mutation(mutation)?;
+        dbg!(report);
+    }
+    Ok(())
+}
+
+/// Display mutation but don't run tests
+fn display_mutations(mutations: &Vec<Mutation>) -> eyre::Result<()> {
+    for mutation in mutations {
+        println!("{}", mutation.display()?)
+    }
+    Ok(())
 }
 
 pub fn run() -> eyre::Result<()> {
@@ -358,10 +329,17 @@ pub fn run() -> eyre::Result<()> {
     let Cli::Darwin(Darwin {
         mutation_path,
         root_path,
+        dry_run,
     }) = cli;
 
-    let mutants = list_sources(&PathBuf::from(&root_path))?;
-    generate_mutants(mutants, &root_path, &mutation_path)?;
+    let mut mutants = analyze(&PathBuf::from(&root_path))?;
+
+    if !dry_run {
+        generate_mutants(&mut mutants, &root_path, &mutation_path)?;
+        run_tests(&mutants)?;
+    } else {
+        display_mutations(&mutants)?;
+    }
 
     Ok(())
 }

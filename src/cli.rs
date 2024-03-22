@@ -3,7 +3,7 @@ use std::env;
 use std::path::PathBuf;
 
 fn get_default_project_path() -> PathBuf {
-    let mut path = env::current_dir().unwrap();
+    let path = env::current_dir().unwrap();
     path
 }
 
@@ -28,4 +28,7 @@ pub struct Darwin {
     /// Root path to mutated projects
     #[arg(long, default_value = get_default_mutation_path().into_os_string())]
     pub(crate) mutation_path: PathBuf,
+    /// Don't run the mutation only list them
+    #[arg(long, action, default_value = "false")]
+    pub(crate) dry_run: bool,
 }

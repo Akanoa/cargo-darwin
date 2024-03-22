@@ -1,6 +1,5 @@
 use eyre::eyre;
 use imara_diff::UnifiedDiffBuilder;
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Read;
 use std::ops::Range;
@@ -13,6 +12,7 @@ pub struct Mutation {
     reason: Option<String>,
     mutated_file: Option<String>,
     file_path: Option<PathBuf>,
+    mutation_project_path: Option<PathBuf>,
 }
 
 impl Mutation {
@@ -57,16 +57,8 @@ impl Mutation {
     }
 }
 
-impl Display for &Mutation {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut content = "Mutation of file ".to_string();
-
-        write!(f, "{content}")
-    }
-}
-
 #[derive(Debug, PartialEq, Default)]
-struct MutationChunk {
+pub(crate) struct MutationChunk {
     start: usize,
     end: usize,
     start_point: Point,
@@ -129,10 +121,11 @@ impl Mutation {
             reason: None,
             mutated_file: None,
             file_path: None,
+            mutation_project_path: None,
         }
     }
 
-    pub(crate) fn with_reason<'a>(self, reason: &'a str) -> Self {
+    pub(crate) fn with_reason(self, reason: &str) -> Self {
         Mutation {
             reason: Some(reason.to_string()),
             ..self
@@ -161,12 +154,30 @@ impl Mutation {
         self.mutated_file = Some(file_clone)
     }
 
-    pub(crate) fn get_mutated_file(&self) -> &Option<String> {
-        &self.mutated_file
+    pub(crate) fn get_mutated_file(&self) -> eyre::Result<&String> {
+        self.mutated_file
+            .as_ref()
+            .ok_or(eyre!("No mutate file generated yet"))
+    }
+
+    pub(crate) fn get_file_path(&self) -> eyre::Result<&PathBuf> {
+        self.file_path
+            .as_ref()
+            .ok_or(eyre!("No mutation file path defined yet"))
+    }
+
+    pub(crate) fn get_mutation_project_path(&self) -> eyre::Result<&PathBuf> {
+        self.mutation_project_path
+            .as_ref()
+            .ok_or(eyre!("No mutation project path defined yet"))
     }
 
     pub(crate) fn set_file_path(&mut self, path: &PathBuf) {
         self.file_path = Some(path.clone())
+    }
+
+    pub(crate) fn set_mutation_project_path(&mut self, path: &PathBuf) {
+        self.mutation_project_path = Some(path.clone())
     }
 }
 
@@ -180,8 +191,8 @@ mod tests {
         let mut mutation = Mutation::new("|", MutationChunk::new_chunk(5..6));
         mutation.mutate_file(&file);
         assert_eq!(
-            mutation.get_mutated_file(),
-            &Some(r#"Hello| world"#.to_string())
+            mutation.get_mutated_file().unwrap(),
+            &r#"Hello| world"#.to_string()
         );
     }
 
@@ -191,8 +202,8 @@ mod tests {
         let mut mutation = Mutation::new("|||", MutationChunk::new_chunk(5..6));
         mutation.mutate_file(&file);
         assert_eq!(
-            mutation.get_mutated_file(),
-            &Some(r#"Hello||| world"#.to_string())
+            mutation.get_mutated_file().unwrap(),
+            &r#"Hello||| world"#.to_string()
         );
     }
 
@@ -202,8 +213,8 @@ mod tests {
         let mut mutation = Mutation::new("42", MutationChunk::new_chunk(8..11));
         mutation.mutate_file(&file);
         assert_eq!(
-            mutation.get_mutated_file(),
-            &Some(r#"let x = 42;"#.to_string())
+            mutation.get_mutated_file().unwrap(),
+            &r#"let x = 42;"#.to_string()
         );
     }
 }
