@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum MutationStatus {
     Success,
     Fail,
@@ -6,11 +6,11 @@ pub(crate) enum MutationStatus {
     CompilationFailed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct MutationReport {
-    stdout: String,
-    stderr: String,
-    status: MutationStatus,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) status: MutationStatus,
 }
 
 impl MutationReport {

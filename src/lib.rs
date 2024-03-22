@@ -5,7 +5,7 @@ use eyre::{eyre, Context};
 use mutation::Mutation;
 use normpath::PathExt;
 use std::fs::File;
-use std::io::{Read, Stdout, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -258,8 +258,6 @@ fn run_test_for_mutation(mutation: &Mutation) -> eyre::Result<MutationReport> {
         let stdout = String::from_utf8_lossy(&command.stdout).to_string();
         let stderr = String::from_utf8_lossy(&command.stderr).to_string();
 
-        println!("stdout:\n{stderr}\nstdout:\n{stdout}");
-
         Ok(MutationReport::new(
             stdout,
             stderr,
@@ -307,10 +305,11 @@ fn run_test_for_mutation(mutation: &Mutation) -> eyre::Result<MutationReport> {
     };
 }
 
-fn run_tests(mutations: &Vec<Mutation>) -> eyre::Result<()> {
+fn run_tests(mutations: &mut Vec<Mutation>) -> eyre::Result<()> {
     for mutation in mutations {
         let report = run_test_for_mutation(mutation)?;
-        dbg!(report);
+        mutation.set_report(report);
+        println!("{}", mutation.display()?);
     }
     Ok(())
 }
@@ -336,7 +335,7 @@ pub fn run() -> eyre::Result<()> {
 
     if !dry_run {
         generate_mutants(&mut mutants, &root_path, &mutation_path)?;
-        run_tests(&mutants)?;
+        run_tests(&mut mutants)?;
     } else {
         display_mutations(&mutants)?;
     }

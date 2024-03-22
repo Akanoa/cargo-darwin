@@ -1,3 +1,4 @@
+use crate::report::MutationReport;
 use eyre::eyre;
 use imara_diff::UnifiedDiffBuilder;
 use std::fs::File;
@@ -13,6 +14,7 @@ pub struct Mutation {
     mutated_file: Option<String>,
     file_path: Option<PathBuf>,
     mutation_project_path: Option<PathBuf>,
+    report: Option<MutationReport>,
 }
 
 impl Mutation {
@@ -53,7 +55,19 @@ impl Mutation {
 
         let mutation_diff = format!("Mutation diff:\n{diff}");
 
-        Ok(format!("{mutated_file}\n{reason_string}\n{mutation_diff}"))
+        let mut report_str = "".to_string();
+        if let Some(report) = &self.report {
+            let MutationReport {
+                stdout,
+                stderr,
+                status,
+            } = report;
+            report_str = format!("stderr:\n{stderr}\nstdout:\n{stdout}\nstatus: {status:?}\n--\n");
+        }
+
+        Ok(format!(
+            "{mutated_file}\n{reason_string}\n{mutation_diff}{report_str}"
+        ))
     }
 }
 
@@ -122,6 +136,7 @@ impl Mutation {
             mutated_file: None,
             file_path: None,
             mutation_project_path: None,
+            report: None,
         }
     }
 
@@ -172,12 +187,20 @@ impl Mutation {
             .ok_or(eyre!("No mutation project path defined yet"))
     }
 
+    pub(crate) fn get_report(&self) -> &Option<MutationReport> {
+        &self.report
+    }
+
     pub(crate) fn set_file_path(&mut self, path: &PathBuf) {
         self.file_path = Some(path.clone())
     }
 
     pub(crate) fn set_mutation_project_path(&mut self, path: &PathBuf) {
         self.mutation_project_path = Some(path.clone())
+    }
+
+    pub(crate) fn set_report(&mut self, report: MutationReport) {
+        self.report = Some(report)
     }
 }
 
