@@ -1,4 +1,4 @@
-use darwin::run;
+use cargo_darwin::run;
 
 fn main() {
     env_logger::init();

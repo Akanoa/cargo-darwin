@@ -1,25 +1,25 @@
+use clap::Parser;
+use cli::{Cli, Darwin};
+use eyre::{eyre, Context};
+use mutation::Mutation;
+use normpath::PathExt;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-
-use clap::Parser;
-use eyre::{eyre, Context};
-
 use syn::spanned::Spanned;
 use syn::{Attribute, ItemFn, Token};
 use walkdir::WalkDir;
 
-#[derive(Parser, Debug)]
-struct Args {
-    /// Path of the project to mutate
-    #[arg(name = "PROJECT PATH")]
-    root_path: OsString,
-    /// Root path to mutated projects
-    #[arg(long, default_value = "./tmp")]
-    mutation_path: OsString,
-}
+mod cli;
+mod mutation;
+
+static FUNCTION_ITEM: &'static str = "function_item";
+static ATTRIBUTE_ITEM: &'static str = "attribute_item";
+static BLOCK_ITEM: &'static str = "block";
+static BINARY_EXPR_ITEM: &'static str = "binary_expression";
+static MINUS_ITEM: &'static str = "-";
+static PLUS_ITEM: &'static str = "+";
 
 fn rust_source(entry: &walkdir::DirEntry) -> bool {
     entry
@@ -113,8 +113,116 @@ fn handle_function_item(function: &syn::ItemFn) -> eyre::Result<Vec<ItemFn>> {
     Ok(vec![])
 }
 
+fn check_function_is_test(
+    parent: &tree_sitter::Node,
+    function_item: &tree_sitter::Node,
+    index: usize,
+    file: &String,
+) -> eyre::Result<bool> {
+    if index == 0 {
+        return Ok(false);
+    }
+
+    // is there attribute on function
+    if let Some(attribute_node) = parent.child(index - 1) {
+        if attribute_node.kind() == ATTRIBUTE_ITEM {
+            let attribute_data = &file[attribute_node.start_byte()..function_item.end_byte()];
+            let item_fn: ItemFn = syn::parse_str(attribute_data)?;
+            return is_test_function(&item_fn.attrs);
+        }
+    }
+
+    Ok(false)
+}
+
+fn handle_block(
+    node_block: tree_sitter::Node,
+    file: &String,
+    mutations: &mut Vec<Mutation>,
+) -> eyre::Result<()> {
+    let mut cursor = node_block.walk();
+    for child in node_block.children(&mut cursor) {
+        if child.kind() == BINARY_EXPR_ITEM {
+            let binary_expr_data = &file[child.start_byte()..child.end_byte()];
+
+            let mut binary_expr_cursor = child.walk();
+            for component in child.children(&mut binary_expr_cursor) {
+                if [MINUS_ITEM, PLUS_ITEM].contains(&component.kind()) {
+                    let operator_item = component;
+
+                    let binary_expr: syn::ExprBinary = syn::parse_str(binary_expr_data)?;
+                    match binary_expr.op {
+                        syn::BinOp::Sub(..) => {
+                            log::trace!("Binary - operation found");
+                            mutations.push(
+                                Mutation::new("+", &operator_item).with_reason("replace - by +"),
+                            );
+                            mutations.push(
+                                Mutation::new("*", &operator_item).with_reason("replace - by *"),
+                            );
+                            mutations.push(
+                                Mutation::new("&&", &operator_item).with_reason("replace - by &&"),
+                            );
+                        }
+                        syn::BinOp::Add(..) => mutations
+                            .push(Mutation::new("-", &operator_item).with_reason("replace + by -")),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn tree_sitter_parse(path: &Path, root_path: &PathBuf) -> eyre::Result<Vec<Mutation>> {
+    let relative_path = path.strip_prefix(root_path)?;
+    let path = normpath::BasePathBuf::new(path.to_path_buf())?;
+    log::info!("Handle file {relative_path:?}");
+    let mut source_file = File::open(&path)?;
+    let mut content = String::new();
+    source_file.read_to_string(&mut content)?;
+
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(tree_sitter_rust::language())?;
+
+    let tree = parser
+        .parse(&content, None)
+        .ok_or(eyre!("Unable to parse file {path:?}"))?;
+
+    let mut root_cursor = tree.walk();
+    let mut file_mutants = vec![];
+    for (child_index, child_node) in tree.root_node().children(&mut root_cursor).enumerate() {
+        if child_node.kind() == FUNCTION_ITEM {
+            if !check_function_is_test(&tree.root_node(), &child_node, child_index, &content)? {
+                let function_data = &content[child_node.start_byte()..child_node.end_byte()];
+                let item_fn: ItemFn = syn::parse_str(function_data)?;
+                log::info!(
+                    "Handle function {} line : {}",
+                    item_fn.sig.ident,
+                    child_node.start_position().row + 1
+                );
+
+                let mut cursor = tree.walk();
+                for node in child_node.children(&mut cursor) {
+                    if node.kind() == BLOCK_ITEM {
+                        handle_block(node, &content, &mut file_mutants)?;
+                    }
+                }
+            }
+        }
+    }
+
+    for mutation in file_mutants.iter_mut() {
+        mutation.set_file_path(&path.as_path().to_path_buf());
+        mutation.mutate_file(&content);
+    }
+
+    Ok(file_mutants)
+}
+
 fn syn_parse(path: &Path) -> eyre::Result<Vec<syn::File>> {
-    //log::info!("Handle file {path:?}");
+    log::info!("Handle file {path:?}");
     let mut source_file = File::open(path)?;
     let mut content = String::new();
     source_file.read_to_string(&mut content)?;
@@ -184,8 +292,8 @@ fn copy_project_with_mutation(
 
 fn generate_mutants(
     mutants: HashMap<PathBuf, Vec<syn::File>>,
-    project_path: &OsString,
-    mutation_root: &OsString,
+    project_path: &PathBuf,
+    mutation_root: &PathBuf,
 ) -> eyre::Result<()> {
     let project_path = std::fs::canonicalize(project_path)?;
     let walker =
@@ -219,28 +327,41 @@ fn generate_mutants(
 }
 
 fn list_sources(root_path: &PathBuf) -> eyre::Result<HashMap<PathBuf, Vec<syn::File>>> {
+    dbg!(root_path);
+    let root_path = root_path.normalize().wrap_err("x")?.as_path().to_path_buf();
     let walker = WalkDir::new(&root_path);
     // Contient l'ensemble des variants de mutation par fichiers
     let mut mutated_files_per_project: HashMap<PathBuf, Vec<syn::File>> = HashMap::new();
+    let mut mutants = vec![];
 
     for entry in walker {
-        let entry = entry?;
+        let entry = entry.wrap_err("Unable to found entry")?;
         if rust_source(&entry) {
             let path = entry.path();
-            let mutated_files = syn_parse(path)?;
-            mutated_files_per_project
-                .insert(path.strip_prefix(&root_path)?.to_path_buf(), mutated_files);
+            let mutated_files = tree_sitter_parse(path, &root_path)?;
+            mutants.extend(mutated_files);
+            // mutated_files_per_project
+            //     .insert(path.strip_prefix(&root_path)?.to_path_buf(), mutated_files);
         }
+    }
+
+    for mutant in mutants {
+        println!("{}", mutant.display().unwrap())
     }
 
     Ok(mutated_files_per_project)
 }
 
 pub fn run() -> eyre::Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    let mutants = list_sources(&PathBuf::from(&args.root_path))?;
-    generate_mutants(mutants, &args.root_path, &args.mutation_path)?;
+    let Cli::Darwin(Darwin {
+        mutation_path,
+        root_path,
+    }) = cli;
+
+    let mutants = list_sources(&PathBuf::from(&root_path))?;
+    generate_mutants(mutants, &root_path, &mutation_path)?;
 
     Ok(())
 }
