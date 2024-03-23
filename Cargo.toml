@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.3", features = ["derive", "string"] }
+colored = "2.1.0"
+dunce = "1.0.4"
 eyre = "0.6.12"
 syn = { version = "2.0.53", features = ["parsing", "full"] }
 walkdir = "2.5.0"
@@ -15,9 +17,8 @@ env_logger = { version = "0.11.3", features = ["color"] }
 quote = "1.0.35"
 globwalk = "0.9.1"
 prettyplease = "0.2.16"
-tree-sitter = "0.20.4"
+tree-sitter = "0.20.10"
 tree-sitter-rust = "0.20.4"
 proc-macro2 = { version = "1.0.79", features = ["span-locations"] }
-normpath = "1.2.0"
 imara-diff = "0.1.5"
 wait-timeout = "0.2.0"

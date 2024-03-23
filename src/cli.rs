@@ -1,4 +1,5 @@
 use clap::Parser;
+use colored::Colorize;
 use std::env;
 use std::path::PathBuf;
 
@@ -20,7 +21,24 @@ pub enum Cli {
     Darwin(Darwin),
 }
 
+pub(crate) fn help() -> String {
+    format!(
+        r#"
+{} : Tests pass, the mutation hasn't been caught, suspicion of missing test
+{}      : Tests failed, the mutation has been caught
+{} : Mutation introduces infinite loop, inconclusive
+{}  : Mutation introduces non buildable modification
+    "#,
+        "[Missing]".yellow(),
+        "[OK]".green(),
+        "[Timeout]".white(),
+        "[Killed]".white()
+    )
+}
+
 #[derive(clap::Args, Debug)]
+/// Darwin mutates your code, if your code still passes check tests, then your code isn't
+/// enough tested
 pub struct Darwin {
     /// Path of the project to mutate
     #[arg(name = "PROJECT PATH", default_value = get_default_project_path().into_os_string())]

@@ -1,4 +1,3 @@
-use crate::report::MutationReport;
 use eyre::eyre;
 use imara_diff::UnifiedDiffBuilder;
 use std::fs::File;
@@ -6,15 +5,19 @@ use std::io::Read;
 use std::ops::Range;
 use std::path::PathBuf;
 
+use crate::report::MutationReport;
+
 #[derive(Debug, PartialEq)]
 pub struct Mutation {
     mutation: String,
-    chunk: MutationChunk,
-    reason: Option<String>,
+    pub(crate) chunk: MutationChunk,
+    pub(crate) reason: String,
     mutated_file: Option<String>,
     file_path: Option<PathBuf>,
     mutation_project_path: Option<PathBuf>,
     report: Option<MutationReport>,
+    pub(crate) function_name: String,
+    id: usize,
 }
 
 impl Mutation {
@@ -24,15 +27,18 @@ impl Mutation {
             .as_ref()
             .ok_or(eyre!("Mutated file not specified"))?;
 
-        let file_path_string = file_path
+        let file_path_string = dunce::simplified(file_path)
             .to_str()
             .ok_or(eyre!("Unable to make a string from file_path"))?;
-        let mutated_file = format!("Mutation of file {file_path_string}");
+        let mutated_file = format!("Mutation of file {}", file_path_string);
 
-        let reason = self
-            .reason
-            .as_ref()
-            .ok_or(eyre!("Mutation reason missing"))?;
+        let mut mutation_status = "".to_string();
+        if let Some(report) = &self.report {
+            let MutationReport { status, .. } = report;
+            mutation_status = format!("Mutation status : {}", status)
+        }
+
+        let reason = &self.reason;
         let reason_string = format!("Mutation reason: {reason}");
 
         let mutated_content = self
@@ -60,14 +66,55 @@ impl Mutation {
             let MutationReport {
                 stdout,
                 stderr,
-                status,
+                status: _status,
             } = report;
-            report_str = format!("stderr:\n{stderr}\nstdout:\n{stdout}\nstatus: {status:?}\n--\n");
+            report_str = format!("stderr:\n{stderr}\nstdout:\n{stdout}--\n");
         }
 
         Ok(format!(
-            "{mutated_file}\n{reason_string}\n{mutation_diff}{report_str}"
+            "{mutated_file}\n{reason_string}\n{mutation_status}\n{mutation_diff}{report_str}"
         ))
+    }
+
+    fn get_details(&self, project_path: &PathBuf) -> eyre::Result<String> {
+        let details = format!(
+            "Mutation #{} {} in function \"{}\" of file {} at line {}:{}",
+            &self.id,
+            &self.reason,
+            &self.function_name,
+            dunce::simplified(self.get_file_path()?.strip_prefix(project_path)?).display(),
+            self.chunk.start_point.row + 1,
+            self.chunk.start_point.column
+        );
+        Ok(details)
+    }
+
+    pub(crate) fn pretty(&self, project_path: &PathBuf) -> eyre::Result<()> {
+        let details = self.get_details(project_path)?;
+
+        let status = self
+            .report
+            .as_ref()
+            .ok_or(eyre!("No report defined"))?
+            .pretty();
+
+        println!("{status} : {details}");
+
+        Ok(())
+    }
+
+    pub(crate) fn simple(&self, project_path: &PathBuf) -> eyre::Result<String> {
+        let details = self.get_details(project_path)?;
+
+        let status = self
+            .report
+            .as_ref()
+            .ok_or(eyre!("No report defined"))?
+            .simple();
+
+        let result = format!("{status} : {details}");
+
+        Ok(result)
     }
 }
 
@@ -75,7 +122,7 @@ impl Mutation {
 pub(crate) struct MutationChunk {
     start: usize,
     end: usize,
-    start_point: Point,
+    pub(crate) start_point: Point,
     end_point: Point,
 }
 
@@ -113,9 +160,9 @@ impl<'a> From<&tree_sitter::Node<'a>> for MutationChunk {
 }
 
 #[derive(Debug, PartialEq, Default)]
-struct Point {
-    row: usize,
-    column: usize,
+pub(crate) struct Point {
+    pub(crate) row: usize,
+    pub(crate) column: usize,
 }
 
 impl From<tree_sitter::Point> for Point {
@@ -132,17 +179,26 @@ impl Mutation {
         Mutation {
             mutation: String::from(mutation_chunk),
             chunk: node.into(),
-            reason: None,
+            reason: "".to_string(),
             mutated_file: None,
             file_path: None,
             mutation_project_path: None,
             report: None,
+            function_name: "".to_string(),
+            id: 0,
         }
     }
 
     pub(crate) fn with_reason(self, reason: &str) -> Self {
         Mutation {
-            reason: Some(reason.to_string()),
+            reason: reason.to_string(),
+            ..self
+        }
+    }
+
+    pub(crate) fn with_function_name(self, function_name: &str) -> Self {
+        Mutation {
+            function_name: function_name.to_string(),
             ..self
         }
     }
@@ -187,10 +243,6 @@ impl Mutation {
             .ok_or(eyre!("No mutation project path defined yet"))
     }
 
-    pub(crate) fn get_report(&self) -> &Option<MutationReport> {
-        &self.report
-    }
-
     pub(crate) fn set_file_path(&mut self, path: &PathBuf) {
         self.file_path = Some(path.clone())
     }
@@ -201,6 +253,14 @@ impl Mutation {
 
     pub(crate) fn set_report(&mut self, report: MutationReport) {
         self.report = Some(report)
+    }
+
+    pub(crate) fn set_mutation_id(&mut self, id: usize) {
+        self.id = id
+    }
+
+    pub(crate) fn get_mutation_id(&self) -> usize {
+        self.id
     }
 }
 
