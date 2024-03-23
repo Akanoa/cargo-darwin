@@ -1,6 +1,6 @@
 [package]
 name = "cargo-darwin"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,6 @@ categories = ["command-line-utilities", "development-tools::cargo-plugins"]
 [dependencies]
 clap = { version = "4.5.3", features = ["derive", "string"] }
 colored = "2.1.0"
-colored-diff = "0.2.3"
 text-diff = "0.4.0"
 dunce = "1.0.4"
 eyre = "0.6.12"

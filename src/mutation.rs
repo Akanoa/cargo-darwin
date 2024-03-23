@@ -1,5 +1,4 @@
 use eyre::eyre;
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Read;
 use std::ops::Range;
@@ -19,17 +18,6 @@ pub struct Mutation {
     report: Option<MutationReport>,
     pub(crate) function_name: String,
     id: usize,
-}
-
-struct Diff<'a> {
-    old: &'a str,
-    new: &'a str,
-}
-
-impl Display for Diff<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        colored_diff::diff(f, self.old, self.new)
-    }
 }
 
 impl Mutation {
