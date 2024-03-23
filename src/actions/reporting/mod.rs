@@ -6,8 +6,10 @@ use std::path::PathBuf;
 
 use crate::mutation::Mutation;
 
+pub(crate) mod sink;
+
 fn generate_report(mutation: &Mutation, mutation_root: &PathBuf) -> eyre::Result<()> {
-    let content = mutation.display()?;
+    let content = mutation.display(false)?;
     let data = content.as_bytes();
     let mutation_log_path =
         mutation_root.join(format!("mutation_{}.log", mutation.get_mutation_id()));

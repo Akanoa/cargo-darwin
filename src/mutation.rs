@@ -1,10 +1,11 @@
 use eyre::eyre;
-use imara_diff::UnifiedDiffBuilder;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Read;
 use std::ops::Range;
 use std::path::PathBuf;
 
+use crate::actions::reporting::sink::UnifiedColorDiff;
 use crate::report::MutationReport;
 
 #[derive(Debug, PartialEq)]
@@ -20,8 +21,19 @@ pub struct Mutation {
     id: usize,
 }
 
+struct Diff<'a> {
+    old: &'a str,
+    new: &'a str,
+}
+
+impl Display for Diff<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        colored_diff::diff(f, self.old, self.new)
+    }
+}
+
 impl Mutation {
-    pub fn display(&self) -> eyre::Result<String> {
+    pub fn display(&self, pretty_diff: bool) -> eyre::Result<String> {
         let file_path = self
             .file_path
             .as_ref()
@@ -53,11 +65,20 @@ impl Mutation {
             original_content.as_str(),
             mutated_content.as_str(),
         );
-        let diff = imara_diff::diff(
-            imara_diff::Algorithm::Myers,
-            &input,
-            UnifiedDiffBuilder::new(&input),
-        );
+
+        let diff = if pretty_diff {
+            imara_diff::diff(
+                imara_diff::Algorithm::Myers,
+                &input,
+                UnifiedColorDiff::new(&input),
+            )
+        } else {
+            imara_diff::diff(
+                imara_diff::Algorithm::Myers,
+                &input,
+                imara_diff::UnifiedDiffBuilder::new(&input),
+            )
+        };
 
         let mutation_diff = format!("Mutation diff:\n{diff}");
 

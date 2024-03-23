@@ -191,7 +191,7 @@ mod report;
 /// Display mutation but don't run tests
 fn display_mutations(mutations: &Vec<Mutation>) -> eyre::Result<()> {
     for mutation in mutations {
-        println!("{}", mutation.display()?)
+        println!("{}", mutation.display(true)?)
     }
     Ok(())
 }

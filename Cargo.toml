@@ -1,6 +1,6 @@
 [package]
 name = "cargo-darwin"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 license = "MIT OR Apache-2.0"
@@ -16,15 +16,16 @@ categories = ["command-line-utilities", "development-tools::cargo-plugins"]
 [dependencies]
 clap = { version = "4.5.3", features = ["derive", "string"] }
 colored = "2.1.0"
+colored-diff = "0.2.3"
+text-diff = "0.4.0"
 dunce = "1.0.4"
 eyre = "0.6.12"
 syn = { version = "2.0.53", features = ["parsing", "full"] }
 walkdir = "2.5.0"
 log = { version = "0.4.21" }
 env_logger = { version = "0.11.3", features = ["color"] }
-quote = "1.0.35"
 globwalk = "0.9.1"
-prettyplease = "0.2.16"
+# require less than 0.21.0 by tree-sitter-rust
 tree-sitter = "0.20.10"
 tree-sitter-rust = "0.20.4"
 proc-macro2 = { version = "1.0.79", features = ["span-locations"] }
