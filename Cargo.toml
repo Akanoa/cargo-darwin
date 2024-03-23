@@ -3,6 +3,14 @@ name = "cargo-darwin"
 version = "0.1.0"
 edition = "2021"
 
+license = "MIT OR Apache-2.0"
+description = "Darwin mutates your code, if your code still passes check tests, then your code isn't enough tested."
+repository = "https://github.com/Akanoa/cargo-darwin/tree"
+readme = "Readme.md"
+keywords = ["mutation-testing", "testing"]
+categories = ["command-line-utilities", "development-tools::cargo-plugins"]
+
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
