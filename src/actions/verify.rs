@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use crate::actions::clean::clean_mutation_project;
 use eyre::eyre;
 use wait_timeout::ChildExt;
 
@@ -96,7 +95,6 @@ pub(crate) fn run_test_for_mutation(
             }
         }
     };
-    clean_mutation_project(mutation)?;
     mutation.set_report(report);
     mutation.pretty(project_path)?;
     Ok(())

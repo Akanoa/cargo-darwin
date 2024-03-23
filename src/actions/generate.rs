@@ -1,3 +1,4 @@
+use crate::actions::clean::clean_mutation_project;
 use crate::actions::get_project_walker;
 use crate::actions::verify::run_test_for_mutation;
 use crate::mutation::Mutation;
@@ -53,6 +54,7 @@ pub fn generate_and_verify_mutants(
     mutants: &mut Vec<Mutation>,
     project_path: &PathBuf,
     mutation_root: &PathBuf,
+    keep: bool,
 ) -> eyre::Result<()> {
     log::info!("Generate mutant projects");
 
@@ -77,6 +79,9 @@ pub fn generate_and_verify_mutants(
         mutation.set_mutation_id(mutation_id);
         create_mutated_project(&walker, &project_path, &mutation_path, mutation)?;
         run_test_for_mutation(mutation, project_path)?;
+        if !keep {
+            clean_mutation_project(mutation)?;
+        }
         mutation_id += 1;
     }
 

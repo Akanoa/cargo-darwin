@@ -4,6 +4,12 @@
 
 Darwin mutates your code, if your code still passes check tests, then your code isn't enough tested.
 
+## Installation
+
+```
+cargo install cargo-darwin
+```
+
 ## Usage
 
 ```bash
@@ -25,6 +31,12 @@ Will display something like
 [Missing] : Mutation #4 replace + by * in function "add" of file src\lib.rs at line 5:6
 [Missing] : Mutation #5 replace + by - in function "add" of file src\lib.rs at line 5:10
 [Missing] : Mutation #6 replace + by * in function "add" of file src\lib.rs at line 5:10
+```
+
+There is a `--dry-run` mode to just list mutation without actually apply tests.
+
+```bash
+cargo darwin --dry-run /path/to/project/to/test
 ```
 
 ## Details
@@ -168,7 +180,7 @@ As a test has failed, the mutation has been caught, so the code is enough tested
 
 ## Limits
 
-This project have done for the sole aim to understand the mutation testing and how it can be implemented.
+This project has done in the sole goal to understand the mutation testing and how it can be implemented.
 
 That's why the set of mutation is hardcoded so far.
 

@@ -204,6 +204,7 @@ pub fn run() -> eyre::Result<()> {
         mutation_path,
         root_path,
         dry_run,
+        keep,
     }) = cli;
 
     let root_path = fs::canonicalize(root_path)?;
@@ -211,7 +212,7 @@ pub fn run() -> eyre::Result<()> {
 
     if !dry_run {
         println!("{}---", cli::help());
-        generate::generate_and_verify_mutants(&mut mutants, &root_path, &mutation_path)?;
+        generate::generate_and_verify_mutants(&mut mutants, &root_path, &mutation_path, keep)?;
         reporting::generate_reports(&mutants, &mutation_path, &root_path)?;
     } else {
         log::info!("Run Darwin in dry run");

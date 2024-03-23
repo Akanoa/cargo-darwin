@@ -49,4 +49,7 @@ pub struct Darwin {
     /// Don't run the mutation only list them
     #[arg(long, action, default_value = "false")]
     pub(crate) dry_run: bool,
+    /// keep project folders after test
+    #[arg(long, action, default_value = "false")]
+    pub(crate) keep: bool,
 }
