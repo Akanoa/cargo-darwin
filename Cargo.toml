@@ -5,7 +5,7 @@ edition = "2021"
 
 license = "MIT OR Apache-2.0"
 description = "Darwin mutates your code, if your code still passes check tests, then your code isn't enough tested."
-repository = "https://github.com/Akanoa/cargo-darwin/tree"
+repository = "https://github.com/Akanoa/cargo-darwin"
 readme = "Readme.md"
 keywords = ["mutation-testing", "testing"]
 categories = ["command-line-utilities", "development-tools::cargo-plugins"]
